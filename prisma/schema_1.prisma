@@ -1,0 +1,253 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+
+enum ProjectStatus { DRAFT UPLOADING PROCESSING TRANSCRIBING ANALYZING CLIPPING RENDERING COMPLETED FAILED }
+enum JobStatus { QUEUED PROCESSING COMPLETED FAILED RETRYING }
+enum JobType { FFPROBE TRANSCRIBE HIGHLIGHT_DETECT CLIP_RENDER CAPTION_RENDER VIRAL_ANALYSIS }
+enum ClipStatus { PENDING PROCESSING COMPLETED FAILED }
+enum AspectRatio { AR_9_16 AR_16_9 AR_1_1 }
+enum Platform { TIKTOK YOUTUBE_SHORTS INSTAGRAM_REELS FACEBOOK_REELS }
+enum ClipStyle { VIRAL EDUCATIONAL PODCAST GAMING MOTIVATIONAL STORYTELLING NEWS COMEDY }
+
+model User {
+  id String @id @default(uuid())
+  email String @unique
+  name String?
+  passwordHash String
+  role String @default("USER")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions Session[]
+  projects Project[]
+  templates Template[]
+  brandKits BrandKit[]
+  apiKeys ApiKey[]
+  aiUsages AIUsage[]
+  systemLogs SystemLog[]
+}
+
+model Session {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token String @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Project {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title String
+  description String?
+  status ProjectStatus @default(DRAFT)
+  style ClipStyle @default(VIRAL)
+  aspectRatio AspectRatio @default(AR_9_16)
+  platform Platform @default(TIKTOK)
+  clipCount Int @default(5)
+  clipDuration Int @default(30)
+  aiIntensity String @default("balanced")
+  thumbnailPath String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  videos Video[]
+  clips Clip[]
+  jobs ProcessingJob[]
+  @@index([userId, status])
+}
+
+model Video {
+  id String @id @default(uuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  originalFilename String
+  storedPath String
+  mimeType String
+  sizeBytes Int
+  duration Float?
+  width Int?
+  height Int?
+  fps Float?
+  codec String?
+  bitrate Int?
+  audioCodec String?
+  audioChannels Int?
+  hasAudio Boolean @default(true)
+  ffprobeJson Json?
+  createdAt DateTime @default(now())
+  transcript Transcript?
+}
+
+model Transcript {
+  id String @id @default(uuid())
+  videoId String @unique
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  fullText String @db.Text
+  language String @default("id")
+  createdAt DateTime @default(now())
+  words TranscriptWord[]
+}
+
+model TranscriptWord {
+  id String @id @default(uuid())
+  transcriptId String
+  transcript Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+  word String
+  start Float
+  end Float
+  confidence Float @default(1)
+  speaker String?
+  @@index([transcriptId, start])
+}
+
+model Clip {
+  id String @id @default(uuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  startTime Float
+  endTime Float
+  duration Float
+  title String?
+  hook String?
+  description String?
+  hashtags String[]
+  score Float @default(0)
+  hookScore Float @default(0)
+  engagementScore Float @default(0)
+  emotionScore Float @default(0)
+  infoScore Float @default(0)
+  reason String? @db.Text
+  // PREMIUM FIELDS
+  viralProbability Float @default(0)
+  retentionScore Float @default(0)
+  shareabilityScore Float @default(0)
+  viralBreakdown Json?
+  retentionCurve Json?
+  hookVariants Json?
+  autoEffects Json?
+  ctrPrediction Float @default(0)
+  status ClipStatus @default(PENDING)
+  outputPath String?
+  thumbnailPath String?
+  aspectRatio AspectRatio @default(AR_9_16)
+  cropMode String @default("smart")
+  captionStyle String @default("tiktok")
+  renderedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  captions Caption[]
+}
+
+model Caption {
+  id String @id @default(uuid())
+  clipId String
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  word String
+  start Float
+  end Float
+  style Json?
+  @@index([clipId, start])
+}
+
+model Template {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  aspectRatio AspectRatio @default(AR_9_16)
+  captionStyle String @default("tiktok")
+  fontFamily String @default("Inter")
+  primaryColor String @default("#ffffff")
+  secondaryColor String @default("#000000")
+  backgroundColor String @default("#000000")
+  watermarkPath String?
+  logoPath String?
+  introPath String?
+  outroPath String?
+  config Json?
+  isPublic Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BrandKit {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  logoPath String?
+  brandName String?
+  primaryColor String
+  secondaryColor String
+  fontFamily String @default("Inter")
+  watermarkPath String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MediaAsset {
+  id String @id @default(uuid())
+  userId String
+  filename String
+  storedPath String
+  mimeType String
+  sizeBytes Int
+  type String
+  createdAt DateTime @default(now())
+}
+
+model ProcessingJob {
+  id String @id @default(uuid())
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clipId String?
+  type JobType
+  status JobStatus @default(QUEUED)
+  progress Int @default(0)
+  payload Json?
+  result Json?
+  error String? @db.Text
+  attempts Int @default(0)
+  bullMqJobId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([projectId, status])
+  @@index([status, type])
+}
+
+model AIUsage {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider String
+  model String
+  tokensUsed Int @default(0)
+  costUsd Float @default(0)
+  operation String
+  createdAt DateTime @default(now())
+}
+
+model ApiKey {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider String
+  encryptedKey String @db.Text
+  name String?
+  createdAt DateTime @default(now())
+}
+
+model SystemLog {
+  id String @id @default(uuid())
+  userId String?
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  projectId String?
+  jobId String?
+  level String
+  service String
+  message String @db.Text
+  meta Json?
+  createdAt DateTime @default(now())
+  @@index([level, service])
+}

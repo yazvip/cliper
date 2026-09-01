@@ -1,0 +1,97 @@
+#!/bin/bash
+# AUTO CLIPPER CLI MANAGEMENT
+# Usage: autoclipper [status|logs|update|backup|restore|create-admin|domain]
+
+set -e
+
+INSTALL_DIR="/opt/auto-clipper"
+if [[ -f "./docker-compose.prod.yml" ]]; then
+  INSTALL_DIR=$(pwd)
+fi
+
+COMPOSE_FILE="$INSTALL_DIR/docker-compose.prod.yml"
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+  COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
+fi
+
+cd $INSTALL_DIR 2>/dev/null || cd $(dirname $0) 2>/dev/null || true
+
+case "$1" in
+  status)
+    echo "📊 Auto Clipper Status"
+    docker compose -f $COMPOSE_FILE ps 2>/dev/null || docker-compose -f $COMPOSE_FILE ps
+    echo ""
+    echo "💾 Disk usage:"
+    du -sh ./uploads ./outputs ./tmp 2>/dev/null || true
+    echo ""
+    echo "📈 Queue:"
+    docker compose -f $COMPOSE_FILE exec -T redis redis-cli INFO 2>/dev/null | grep -E "connected_clients|used_memory_human" || true
+    ;;
+  logs)
+    docker compose -f $COMPOSE_FILE logs -f --tail=100 ${2:-app} ${2:-worker} 2>/dev/null || docker-compose -f $COMPOSE_FILE logs -f --tail=100 ${2:-app}
+    ;;
+  update)
+    echo "🔄 Updating Auto Clipper..."
+    git pull
+    docker compose -f $COMPOSE_FILE build app worker
+    docker compose -f $COMPOSE_FILE up -d
+    docker compose -f $COMPOSE_FILE exec -T app npx prisma migrate deploy
+    echo "✅ Updated"
+    ;;
+  backup)
+    BACKUP_DIR="./backups/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p $BACKUP_DIR
+    echo "💾 Backup to $BACKUP_DIR"
+    docker compose -f $COMPOSE_FILE exec -T postgres pg_dump -U postgres autoclipper > $BACKUP_DIR/db.sql
+    tar -czf $BACKUP_DIR/uploads.tar.gz ./uploads 2>/dev/null || true
+    tar -czf $BACKUP_DIR/outputs.tar.gz ./outputs 2>/dev/null || true
+    cp .env $BACKUP_DIR/.env.backup
+    echo "✅ Backup done: $BACKUP_DIR"
+    ls -lh $BACKUP_DIR
+    ;;
+  restore)
+    if [[ -z "$2" ]]; then echo "Usage: autoclipper restore <backup_dir>"; exit 1; fi
+    echo "♻️ Restore from $2"
+    docker compose -f $COMPOSE_FILE exec -T postgres psql -U postgres -d autoclipper -f - < $2/db.sql
+    echo "✅ Restore done"
+    ;;
+  create-admin)
+    EMAIL=${2:-admin@autoclipper.local}
+    PASS=${3:-Admin123!}
+    echo "👤 Creating admin $EMAIL"
+    docker compose -f $COMPOSE_FILE exec -T app node -e "
+      const { PrismaClient } = require('@prisma/client');
+      const bcrypt = require('bcryptjs');
+      (async () => {
+        const p = new PrismaClient();
+        const hash = await bcrypt.hash('$PASS', 10);
+        await p.user.upsert({ where: { email: '$EMAIL' }, update: { passwordHash: hash, role: 'ADMIN' }, create: { email: '$EMAIL', passwordHash: hash, name: 'Admin', role: 'ADMIN' } });
+        console.log('Admin $EMAIL created');
+        await p.\$disconnect();
+      })();
+    "
+    ;;
+  domain)
+    if [[ "$2" == "set" && -n "$3" ]]; then
+      echo "🌐 Setting domain to $3"
+      sed -i "s/^DOMAIN=.*/DOMAIN=$3/" .env
+      sed -i "s|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL=https://$3|" .env
+      docker compose -f $COMPOSE_FILE up -d
+      echo "✅ Domain set to $3, ensure DNS A record points to this server"
+    else
+      echo "Usage: autoclipper domain set yourdomain.com"
+      grep DOMAIN .env || true
+    fi
+    ;;
+  *)
+    echo "Auto Clipper CLI"
+    echo "Usage: autoclipper [command]"
+    echo "  status              - cek status containers & disk"
+    echo "  logs [app|worker]   - lihat logs"
+    echo "  update              - git pull + rebuild + migrate"
+    echo "  backup              - backup DB + uploads"
+    echo "  restore <dir>       - restore DB"
+    echo "  create-admin email pass - buat admin"
+    echo "  domain set domain.com - set domain"
+    ;;
+esac
