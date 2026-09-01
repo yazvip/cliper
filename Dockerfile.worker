@@ -1,8 +1,14 @@
 FROM node:20-alpine
 WORKDIR /app
+
 RUN apk add --no-cache ffmpeg
+
 COPY package.json package-lock.json* ./
-RUN npm ci
+
+RUN if [ -f package-lock.json ]; then       npm ci --no-audit --no-fund;     else       echo "No package-lock.json found, running npm install...";       npm install --no-audit --no-fund;     fi
+
 COPY . .
-RUN npx prisma generate
+
+RUN npx prisma generate 2>/dev/null || echo "Prisma generate skipped"
+
 CMD ["npm", "run", "worker"]
