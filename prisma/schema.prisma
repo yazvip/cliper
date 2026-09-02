@@ -3,7 +3,7 @@ datasource db { provider = "postgresql" url = env("DATABASE_URL") }
 
 enum ProjectStatus { DRAFT UPLOADING PROCESSING TRANSCRIBING ANALYZING CLIPPING RENDERING COMPLETED FAILED }
 enum JobStatus { QUEUED PROCESSING COMPLETED FAILED RETRYING }
-enum JobType { FFPROBE TRANSCRIBE HIGHLIGHT_DETECT CLIP_RENDER CAPTION_RENDER }
+enum JobType { FFPROBE TRANSCRIBE HIGHLIGHT_DETECT CLIP_RENDER CAPTION_RENDER VIRAL_ANALYSIS }
 enum ClipStatus { PENDING PROCESSING COMPLETED FAILED }
 enum AspectRatio { AR_9_16 AR_16_9 AR_1_1 }
 enum Platform { TIKTOK YOUTUBE_SHORTS INSTAGRAM_REELS FACEBOOK_REELS }
@@ -14,7 +14,7 @@ model User {
   email String @unique
   name String?
   passwordHash String
-  role String @default("USER") // USER, ADMIN
+  role String @default("USER")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   sessions Session[]
@@ -46,8 +46,8 @@ model Project {
   aspectRatio AspectRatio @default(AR_9_16)
   platform Platform @default(TIKTOK)
   clipCount Int @default(5)
-  clipDuration Int @default(30) // seconds
-  aiIntensity String @default("balanced") // fast, balanced, deep
+  clipDuration Int @default(30)
+  aiIntensity String @default("balanced")
   thumbnailPath String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -65,7 +65,7 @@ model Video {
   storedPath String
   mimeType String
   sizeBytes Int
-  duration Float? // seconds
+  duration Float?
   width Int?
   height Int?
   fps Float?
@@ -118,11 +118,20 @@ model Clip {
   emotionScore Float @default(0)
   infoScore Float @default(0)
   reason String? @db.Text
+  // PREMIUM FIELDS
+  viralProbability Float @default(0)
+  retentionScore Float @default(0)
+  shareabilityScore Float @default(0)
+  viralBreakdown Json?
+  retentionCurve Json?
+  hookVariants Json?
+  autoEffects Json?
+  ctrPrediction Float @default(0)
   status ClipStatus @default(PENDING)
   outputPath String?
   thumbnailPath String?
   aspectRatio AspectRatio @default(AR_9_16)
-  cropMode String @default("smart") // center, face, speaker, smart
+  cropMode String @default("smart")
   captionStyle String @default("tiktok")
   renderedAt DateTime?
   createdAt DateTime @default(now())
@@ -137,7 +146,7 @@ model Caption {
   word String
   start Float
   end Float
-  style Json? // font, size, color, animation
+  style Json?
   @@index([clipId, start])
 }
 
@@ -184,7 +193,7 @@ model MediaAsset {
   storedPath String
   mimeType String
   sizeBytes Int
-  type String // music, image, logo, watermark
+  type String
   createdAt DateTime @default(now())
 }
 
@@ -215,7 +224,7 @@ model AIUsage {
   model String
   tokensUsed Int @default(0)
   costUsd Float @default(0)
-  operation String // transcribe, highlight, title, etc
+  operation String
   createdAt DateTime @default(now())
 }
 
@@ -223,7 +232,7 @@ model ApiKey {
   id String @id @default(uuid())
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider String // openai, anthropic, etc
+  provider String
   encryptedKey String @db.Text
   name String?
   createdAt DateTime @default(now())
@@ -235,7 +244,7 @@ model SystemLog {
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
   projectId String?
   jobId String?
-  level String // info, warn, error
+  level String
   service String
   message String @db.Text
   meta Json?

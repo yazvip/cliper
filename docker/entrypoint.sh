@@ -1,17 +1,36 @@
 #!/bin/sh
 set -e
 
-echo "🚀 Entrypoint: waiting for postgres..."
-until npx prisma db execute --schema=./prisma/schema.prisma --stdin <<< "SELECT 1" 2>/dev/null || pg_isready -h postgres -U $POSTGRES_USER; do
-  echo "Waiting postgres..."
+echo "🚀 Auto-Clipper Entrypoint"
+
+# Wait for postgres
+echo "⏳ Waiting for PostgreSQL..."
+for i in $(seq 1 30); do
+  if npx prisma db execute --schema=./prisma/schema.prisma --stdin <<SQL 2>/dev/null
+SELECT 1;
+SQL
+  then
+    echo "✅ PostgreSQL connected"
+    break
+  fi
+  echo "  Attempt $i/30..."
   sleep 2
+  if [ $i -eq 30 ]; then
+    echo "❌ Failed to connect to PostgreSQL after 30 attempts"
+    echo "Continuing anyway..."
+  fi
 done
 
-echo "🗄️ Prisma migrate deploy..."
-npx prisma migrate deploy || npx prisma db push --accept-data-loss || echo "Migrate failed, continuing..."
+# Generate Prisma Client (in case volume changed)
+echo "🔧 Generating Prisma Client..."
+npx prisma generate || echo "⚠️ prisma generate failed, continuing"
 
-echo "🌱 Prisma generate..."
-npx prisma generate
+# Run migrations
+echo "🗄️ Running migrations..."
+npx prisma migrate deploy || {
+  echo "⚠️ migrate deploy failed, trying db push..."
+  npx prisma db push --accept-data-loss || echo "⚠️ db push failed"
+}
 
-echo "▶️ Starting app..."
+echo "▶️ Starting: $@"
 exec "$@"
