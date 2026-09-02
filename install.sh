@@ -32,6 +32,10 @@ ensure_env(){ local k="$1" v="$2"; grep -qE "^${k}=.+" .env || echo "${k}=${v}" 
 touch .env; chmod 600 .env
 ensure_env POSTGRES_USER postgres; ensure_env POSTGRES_DB autoclipper
 ensure_env POSTGRES_PASSWORD "$(gen_secret)"; ensure_env REDIS_PASSWORD "$(gen_secret)"; ensure_env JWT_SECRET "$(gen_secret)"
+pg_user=$(grep -E '^POSTGRES_USER=' .env | head -1 | cut -d= -f2-); pg_db=$(grep -E '^POSTGRES_DB=' .env | head -1 | cut -d= -f2-)
+pg_pass=$(grep -E '^POSTGRES_PASSWORD=' .env | head -1 | cut -d= -f2-); redis_pass=$(grep -E '^REDIS_PASSWORD=' .env | head -1 | cut -d= -f2-)
+ensure_env DATABASE_URL "postgresql://${pg_user}:${pg_pass}@postgres:5432/${pg_db}?schema=public"
+ensure_env REDIS_URL "redis://:${redis_pass}@redis:6379"
 ensure_env AI_PROVIDER mock
 if [[ -n "$DOMAIN" ]]; then sed -i "/^DOMAIN=/d;/^NEXT_PUBLIC_APP_URL=/d" .env; echo "DOMAIN=$DOMAIN" >> .env; echo "NEXT_PUBLIC_APP_URL=https://${DOMAIN}" >> .env; fi
 [[ -n "$EMAIL" ]] && { sed -i '/^EMAIL=/d' .env; echo "EMAIL=$EMAIL" >> .env; }
