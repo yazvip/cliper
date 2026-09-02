@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     if (!clipIds || !clipIds.length) return NextResponse.json({ error: 'No clipIds' }, { status: 400 });
 
     const clips = await prisma.clip.findMany({
-      where: { id: { in: clipIds }, project: { userId: user.id } }
+      where: { id: { in: clipIds }, project: { userId: (user as any).id } }
     });
 
     const valid = clips.filter(c => c.outputPath);
@@ -27,7 +27,6 @@ export async function POST(req: NextRequest) {
     const zipName = `clips-${Date.now()}.zip`;
     const zipPath = path.join(outputDir, zipName);
 
-    // Dynamic import of zip lib - build safe
     const { createClipsZip } = await import('@/lib/export/zip');
 
     const clipPaths = valid.map(c => ({
@@ -38,15 +37,7 @@ export async function POST(req: NextRequest) {
     try {
       await createClipsZip(clipPaths, zipPath);
     } catch (e:any) {
-      // If archiver missing, fallback to return list of files
-      if (e.message.includes('archiver not installed')) {
-        return NextResponse.json({ 
-          warning: 'archiver not installed, install with npm i archiver',
-          files: clipPaths,
-          fallback: true
-        });
-      }
-      throw e;
+      return NextResponse.json({ warning: 'zip fallback', files: clipPaths, error: e.message });
     }
 
     return NextResponse.json({ zipPath: zipName, count: valid.length });

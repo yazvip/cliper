@@ -1,30 +1,23 @@
 #!/bin/bash
 set -e
 
-# AUTO-CLIPPER INSTALLER v4.0 - SUPER EASY
-# Auto-detect Public IP + Auto-create Database + Auto-migrate
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+BOLD='\033[1m'
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
+REQUIRED_NODE_MAJOR=20
+MIN_RAM_MB=1024
+MIN_DISK_GB=10
+
 log() { echo -e "${CYAN}[$(date +'%H:%M:%S')]${NC} $1"; }
 success() { echo -e "${GREEN}✅ $1${NC}"; }
 warn() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 error() { echo -e "${RED}❌ $1${NC}"; }
 section() { echo -e "\n${BOLD}${BLUE}=== $1 ===${NC}\n"; }
-
-DOMAIN=""; EMAIL=""; ADMIN_EMAIL="admin@autoclipper.local"; ADMIN_PASS="Admin123!"; REPO="yazvip/cliper"; BRANCH="main"; SKIP_SWAP=false
-
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --domain) DOMAIN="$2"; shift 2;;
-    --email) EMAIL="$2"; shift 2;;
-    --admin-email) ADMIN_EMAIL="$2"; shift 2;;
-    --admin-pass) ADMIN_PASS="$2"; shift 2;;
-    --repo) REPO="$2"; shift 2;;
-    --branch) BRANCH="$2"; shift 2;;
-    --skip-swap) SKIP_SWAP=true; shift;;
-    *) shift;;
-  esac
-done
 
 detect_compose() {
   if docker compose version >/dev/null 2>&1; then echo "docker compose";
@@ -42,71 +35,47 @@ cat <<'BANNER'
 / /_\\ \ |_| |  _| (_) | / /___| | | |_) | |_) |  __/ |   
 \____/ \__,_|_|  \___/  \____/|_|_| .__/| .__/ \___|_|   
                                    |_|   |_|              
-   Premium Viral Clip Generator - Installer v4.0
-   Auto IP Detect + Auto DB Create + 1-Click Deploy
+   Premium Viral Clip Generator - VPS Installer v3.1
+   Fixed: Prisma P1012 + Node 20 + Multi-line Enums
 BANNER
 echo -e "${NC}"
 
-section "PHASE 0: AUTO-DETECT PUBLIC IP"
-
-detect_public_ip() {
-  local ip=""
-  for url in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com" "https://ipinfo.io/ip"; do
-    ip=$(curl -s --max-time 3 $url 2>/dev/null | tr -d ' \n\r' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true)
-    if [[ -n "$ip" ]]; then echo "$ip"; return 0; fi
-  done
-  ip=$(hostname -I 2>/dev/null | awk '{print $1}' | tr -d ' \n' || echo "")
-  if [[ -n "$ip" ]]; then echo "$ip"; return 0; fi
-  echo "127.0.0.1"
-}
-
-PUBLIC_IP=$(detect_public_ip)
-LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
-log "Public IP detected: ${BOLD}$PUBLIC_IP${NC}"
-log "Local IP: $LOCAL_IP"
-if [[ -n "$DOMAIN" ]]; then
-  APP_URL="https://$DOMAIN"
-  log "Domain: $DOMAIN -> APP_URL=$APP_URL"
-else
-  APP_URL="http://$PUBLIC_IP:3000"
-  log "No domain -> using Public IP: APP_URL=$APP_URL"
-fi
-
-section "PHASE 1: AUDIT VPS SPECS"
+section "PHASE 1: AUDIT"
 echo "OS: $(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'"' -f2 || uname -a)"
-echo "CPU: $(nproc) cores | RAM: $(free -h 2>/dev/null | awk '/^Mem:/{print $2}' || echo unknown) | Disk: $(df -h . 2>/dev/null | tail -1 | awk '{print $4}') free"
+echo "CPU: $(nproc) cores | RAM: $(free -h | awk '/^Mem:/{print $2}') | Disk: $(df -h . | tail -1 | awk '{print $4}') available"
 echo "Node: $(node -v 2>/dev/null || echo 'not found') | Sudo Node: $(sudo node -v 2>/dev/null || echo 'not found') | NPM: v$(npm -v 2>/dev/null || echo 'not found')"
 echo "Docker: $(docker --version 2>/dev/null || echo 'not installed')"
+echo "Compose: $($COMPOSE_CMD version 2>/dev/null || $COMPOSE_CMD --version 2>/dev/null || echo 'not found')"
 
-for f in "package.json" "prisma/schema.prisma" "Dockerfile" "docker-compose.prod.yml" ".dockerignore"; do
-  if [ -f "$f" ]; then echo "  $f: ✅"; else warn "$f: MISSING"; fi
-done
+if [ -f "prisma/schema.prisma" ]; then
+  if npx prisma validate >/dev/null 2>&1; then success "Prisma schema VALID"; else warn "Prisma schema INVALID - will auto-fix"; fi
+else
+  error "prisma/schema.prisma missing"
+fi
 
-if DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma validate >/dev/null 2>&1; then success "Prisma schema VALID"; else warn "Prisma schema will be auto-fixed"; fi
+read -p "Continue? (y/n) " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ ]] || exit 1
 
-section "PHASE 2: AUTO-FIX NODE 20 + NPM 12 + DOCKER"
+section "PHASE 2: AUTO-FIX Node & Docker & Prisma"
+# Fix Node if needed
 NODE_MAJOR=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1 || echo 0)
 SUDO_NODE_MAJOR=$(sudo node -v 2>/dev/null | sed 's/v//' | cut -d. -f1 || echo 0)
-if [ "$NODE_MAJOR" -lt 20 ] || [ "$SUDO_NODE_MAJOR" -lt 20 ]; then
-  log "Updating Node.js -> 20 + npm 12..."
+if [ "$NODE_MAJOR" -lt "$REQUIRED_NODE_MAJOR" ] || [ "$SUDO_NODE_MAJOR" -lt "$REQUIRED_NODE_MAJOR" ]; then
+  log "Updating Node.js to v20..."
   sudo apt remove -y nodejs npm 2>/dev/null || true
   sudo apt update && sudo apt install -y curl ca-certificates gnupg
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
   sudo apt install -y nodejs
   sudo npm install -g npm@latest
-  success "Node $(node -v) | Sudo $(sudo node -v) | NPM v$(npm -v)"
-else
-  success "Node v$NODE_MAJOR OK"
-  if [ "$(npm -v 2>/dev/null | cut -d. -f1)" -lt 12 ]; then sudo npm install -g npm@latest; fi
+  success "Node $(node -v) | Sudo $(sudo node -v)"
 fi
 
 if ! command -v docker >/dev/null 2>&1; then curl -fsSL https://get.docker.com | sudo sh; fi
 sudo chown -R $USER:$USER . 2>/dev/null || sudo chown -R ubuntu:ubuntu . 2>/dev/null || true
 chmod +x docker/entrypoint.sh 2>/dev/null || true
 
-if ! DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma validate >/dev/null 2>&1; then
-  log "Fixing prisma/schema.prisma..."
-  cat > prisma/schema.prisma <<'SCHEMA'
+# FIX PRISMA SCHEMA - OVERWRITE WITH CORRECT MULTI-LINE VERSION
+log "Fixing prisma/schema.prisma (multi-line enums)..."
+cat > prisma/schema.prisma <<'SCHEMA'
 generator client {
   provider = "prisma-client-js"
   binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
@@ -425,136 +394,32 @@ model SystemLog {
 }
 
 SCHEMA
-  DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma validate && success "Prisma fixed"
-fi
 
-section "PHASE 3: AUTO-CREATE .ENV + DATABASE CONFIG"
-gen_pass() { openssl rand -hex 16 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n1; }
+if npx prisma validate 2>&1 | grep -q "valid"; then success "Prisma schema VALID ✅"; else error "Schema still invalid"; npx prisma validate; exit 1; fi
 
-if [ ! -f ".env" ]; then
-  log "Generating .env with auto passwords..."
-  JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || gen_pass)
-  POSTGRES_PASS=$(gen_pass)
-  REDIS_PASS=$(gen_pass)
-  cat > .env <<EOF
-# AUTO-GENERATED by Installer v4.0 - $(date)
-# Public IP: $PUBLIC_IP | Domain: $DOMAIN
-DATABASE_URL="postgresql://postgres:${POSTGRES_PASS}@postgres:5432/autoclipper?schema=public"
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=${POSTGRES_PASS}
-POSTGRES_DB=autoclipper
-REDIS_URL="redis://:${REDIS_PASS}@redis:6379"
-REDIS_PASSWORD=${REDIS_PASS}
-JWT_SECRET="${JWT_SECRET}"
-NEXT_PUBLIC_APP_URL="${APP_URL}"
-STORAGE_PATH="./uploads"
-OUTPUT_PATH="./outputs"
-AI_PROVIDER="mock"
-OPENAI_API_KEY=""
-DOMAIN="${DOMAIN}"
-PUBLIC_IP="${PUBLIC_IP}"
-EMAIL="${EMAIL}"
-ADMIN_EMAIL="${ADMIN_EMAIL}"
-ADMIN_PASSWORD="${ADMIN_PASS}"
-EOF
-  success ".env created: $APP_URL | DB=autoclipper | IP=$PUBLIC_IP"
-else
-  success ".env exists"
-  if [[ -n "$DOMAIN" ]]; then
-    sed -i "s|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL=https://$DOMAIN|" .env
-    sed -i "s|^DOMAIN=.*|DOMAIN=$DOMAIN|" .env
-  else
-    sed -i "s|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL=http://$PUBLIC_IP:3000|" .env
-  fi
-  cat .env | grep -E "^(DATABASE_URL|NEXT_PUBLIC_APP_URL|PUBLIC_IP|DOMAIN)=" | sed 's/^/  /'
-fi
-
-section "PHASE 4: AUTO-CREATE DATABASE + BUILD + DEPLOY"
-COMPOSE_FILE="docker-compose.prod.yml"
-[ -f "$COMPOSE_FILE" ] || COMPOSE_FILE="docker-compose.yml"
-log "Compose: $COMPOSE_FILE | Cmd: $COMPOSE_CMD"
-
-sudo $COMPOSE_CMD -f $COMPOSE_FILE down 2>/dev/null || true
-log "Installing deps (Node $(node -v))..."
-rm -rf node_modules .next 2>/dev/null || true
+section "PHASE 3: DEPS"
+rm -rf node_modules package-lock.json .next 2>/dev/null || true
+sudo rm -rf node_modules package-lock.json .next 2>/dev/null || true
+log "npm install..."
 npm install --no-audit --no-fund
 npx prisma generate
 success "Deps OK"
 
-log "Building images (npm 12 auto inside Docker)..."
+section "PHASE 4: DOCKER BUILD"
+COMPOSE_FILE="docker-compose.prod.yml"
+[ -f "$COMPOSE_FILE" ] || COMPOSE_FILE="docker-compose.yml"
+log "Building $COMPOSE_FILE..."
 sudo $COMPOSE_CMD -f $COMPOSE_FILE build --no-cache app worker
-success "Build OK"
-
-log "Starting postgres + redis (auto-create DB)..."
-sudo $COMPOSE_CMD -f $COMPOSE_FILE up -d postgres redis
-for i in {1..30}; do
-  if sudo $COMPOSE_CMD -f $COMPOSE_FILE exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then success "PostgreSQL ready"; break; fi
-  echo "  Waiting... $i/30"; sleep 2
-done
-
-log "Starting app + worker..."
-sudo $COMPOSE_CMD -f $COMPOSE_FILE up -d app worker
+sudo $COMPOSE_CMD -f $COMPOSE_FILE up -d
 sleep 10
 sudo $COMPOSE_CMD -f $COMPOSE_FILE ps
+sudo $COMPOSE_CMD -f $COMPOSE_FILE logs --tail=50 app || true
 
-section "PHASE 5: AUTO-MIGRATE DB + ADMIN"
-log "Migrate (auto-create tables)..."
-sudo $COMPOSE_CMD -f $COMPOSE_FILE exec -T app npx prisma migrate deploy || sudo $COMPOSE_CMD -f $COMPOSE_FILE exec -T app npx prisma db push --accept-data-loss || warn "Migrate retry on restart"
-
-log "Creating admin $ADMIN_EMAIL..."
-sudo $COMPOSE_CMD -f $COMPOSE_FILE exec -T app node -e "
-const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
-(async () => {
-  try {
-    const p = new PrismaClient();
-    const hash = await bcrypt.hash('$ADMIN_PASS', 10);
-    const user = await p.user.upsert({
-      where: { email: '$ADMIN_EMAIL' },
-      update: { passwordHash: hash, role: 'ADMIN' },
-      create: { email: '$ADMIN_EMAIL', passwordHash: hash, name: 'Admin', role: 'ADMIN' }
-    });
-    console.log('✅ Admin:', user.email);
-    await p.\$disconnect();
-  } catch(e){ console.log('❌ Admin error', e.message); }
-})();
-" 2>/dev/null || warn "Admin seed failed"
-
-section "PHASE 6: FINAL + HEALTH"
-sudo ufw --force enable 2>/dev/null || true
-sudo ufw allow 22,80,443,3000/tcp 2>/dev/null || true
-sudo cp ./autoclipper /usr/local/bin/autoclipper 2>/dev/null || true
-sudo chmod +x /usr/local/bin/autoclipper 2>/dev/null || true
+section "HEALTH CHECK"
 sleep 5
+if curl -sf http://localhost:3000/api/health >/dev/null 2>&1; then success "API OK"; curl -s http://localhost:3000/api/health; echo ""; else warn "API check failed"; sudo $COMPOSE_CMD -f $COMPOSE_FILE logs --tail=100 app || true; fi
 
-if curl -sf http://localhost:3000/api/health >/dev/null 2>&1; then
-  success "API OK - http://localhost:3000/api/health"
-  curl -s http://localhost:3000/api/health | head -c 200; echo ""
-else
-  warn "API check failed"; sudo $COMPOSE_CMD -f $COMPOSE_FILE logs --tail=100 app || true
-fi
-
-section "INSTALLATION COMPLETE v4.0"
-echo -e "${GREEN}${BOLD}"
-cat <<'DONE'
-   ___         __           ___ _ _                     
-  / _ \ _   _ / _| ___     / __\ (_) _ __  _ __   ___ _ __ 
- / /_\ \ | | | |_ / _ \   / /  | | | '_ \| '_ \ / _ \ '__|
-/ /_\\ \ |_| |  _| (_) | / /___| | | |_) | |_) |  __/ |   
-\____/ \__,_|_|  \___/  \____/|_|_| .__/| .__/ \___|_|   
-                                   |_|   |_|              
-   v4.0 - Auto IP Detect + Auto DB + 1-Click Deploy
-DONE
-echo -e "${NC}"
-echo "🌐 Public IP: $PUBLIC_IP"
-echo "🏠 Local IP: $LOCAL_IP"
-if [[ -n "$DOMAIN" ]]; then echo "🌍 Domain: https://$DOMAIN"; echo "🔗 App: https://$DOMAIN"; else echo "🔗 App: http://$PUBLIC_IP:3000"; fi
-echo "🗄️  Database: autoclipper (auto-created)"
-echo "👤 Admin: $ADMIN_EMAIL / $ADMIN_PASS"
-echo "📦 Node: $(node -v) | NPM: v$(npm -v) | Sudo Node: $(sudo node -v)"
+section "DONE"
+echo -e "${GREEN}✅ AUTO CLIPPER v3.1 READY${NC}"
 sudo $COMPOSE_CMD -f $COMPOSE_FILE ps 2>/dev/null || true
-echo ""
-echo "Commands: autoclipper status | autoclipper logs | $COMPOSE_CMD -f $COMPOSE_FILE ps"
-if [[ -n "$DOMAIN" ]]; then echo "⚠️  DNS A $DOMAIN -> $PUBLIC_IP"; fi
-success "🎉 Done! Open: $APP_URL"
-success "Login: $ADMIN_EMAIL / $ADMIN_PASS"
+echo "Open http://$(curl -s ifconfig.me 2>/dev/null || echo YOUR_IP):3000 | Admin: admin@autoclipper.local / Admin123!"

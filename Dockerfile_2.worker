@@ -1,0 +1,16 @@
+FROM node:20-alpine
+WORKDIR /app
+
+RUN apk add --no-cache openssl libc6-compat ffmpeg python3 make g++ && npm install -g npm@latest && npm -v
+
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma
+
+RUN if [ -f package-lock.json ]; then       npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund;     else       npm install --ignore-scripts --no-audit --no-fund;     fi
+
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy?schema=public"
+RUN npx prisma generate
+
+COPY . .
+
+CMD ["npm", "run", "worker"]
