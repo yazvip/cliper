@@ -13,6 +13,8 @@ const worker = new Worker<VideoJobData>(VIDEO_QUEUE, async job => {
   const { type, projectId, videoId, clipId, payload } = job.data;
   console.log(`Processing job ${job.id} type ${type} project ${projectId}`);
 
+  if (!projectId) throw new Error(`Job ${job.id} is missing projectId`);
+
   await prisma.processingJob.updateMany({ where: { bullMqJobId: job.id }, data: { status: 'PROCESSING', progress: 10 } });
 
   try {
