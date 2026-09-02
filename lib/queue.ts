@@ -6,7 +6,16 @@ const connection = new IORedis(process.env.REDIS_URL || 'redis://redis:6379', {
   enableReadyCheck: false,
 });
 
-export const videoQueue = new Queue('video-processing', { connection });
+export const VIDEO_QUEUE = 'video-processing';
+export interface VideoJobData {
+  type: string;
+  projectId?: string;
+  videoId?: string;
+  clipId?: string;
+  payload?: Record<string, unknown>;
+}
+
+export const videoQueue = new Queue(VIDEO_QUEUE, { connection });
 export const clipQueue = new Queue('clip-render', { connection });
 
 export const queueEvents = new QueueEvents('video-processing', { connection });
