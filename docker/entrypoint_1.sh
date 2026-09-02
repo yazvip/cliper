@@ -13,7 +13,7 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 echo "🗄️ Prisma migrate deploy..."
-npx prisma migrate deploy 2>&1 || npx prisma db push --accept-data-loss 2>&1 || echo "⚠️ Migrate failed, continuing..."
+npx prisma migrate deploy 2>&1
 
 echo "🌱 Prisma generate..."
 npx prisma generate 2>&1 || true

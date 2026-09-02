@@ -27,10 +27,7 @@ npx prisma generate || echo "⚠️ prisma generate failed, continuing"
 
 # Run migrations
 echo "🗄️ Running migrations..."
-npx prisma migrate deploy || {
-  echo "⚠️ migrate deploy failed, trying db push..."
-  npx prisma db push --accept-data-loss || echo "⚠️ db push failed"
-}
+npx prisma migrate deploy
 
 echo "▶️ Starting: $@"
 exec "$@"

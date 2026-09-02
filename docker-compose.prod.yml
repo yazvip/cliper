@@ -31,7 +31,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --raw ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -60,7 +60,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       NODE_ENV: production
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
@@ -123,6 +123,8 @@ services:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
+    env_file:
+      - .env
     depends_on:
       - app
     networks:
